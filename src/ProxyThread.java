@@ -4,6 +4,8 @@ import java.io.InputStreamReader;
 import java.net.Socket;
 import java.net.URL;
 import java.net.URLConnection;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -45,10 +47,12 @@ public class ProxyThread extends Thread {
             url = firstLine.substring(firstLine.indexOf(' ') + 1, firstLine.lastIndexOf(' '));
             //return not implemented error if header is not get
             if (!header.toUpperCase().equals("GET")) {
+                clientSocket.getOutputStream().write("HTTP/1.1 501 Not Implemented\r\n\r\n".getBytes());
                 throw new Exception("501 Not Implemented");
             }
-            //
+            //Syntax error
             if (!url.startsWith("http")) {
+                clientSocket.getOutputStream().write("HTTP/1.1 400 Bad Request\r\n\r\n".getBytes());
                 throw new Exception("400 Bad Request");
             }
 
@@ -62,6 +66,20 @@ public class ProxyThread extends Thread {
             addToCache(url, result);
             System.out.println("Sending " + clientSocket.getInetAddress() + "\n\nResponse:\n" + result);
             clientSocket.getOutputStream().write(result.getBytes());
+
+            TimerTask timerTask = new TimerTask() {
+                @Override
+                public void run() {
+                    try {
+                        updateCache();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            };
+
+            Timer timer = new Timer();
+            timer.scheduleAtFixedRate(timerTask, 3000, 3000);
 
         } catch (Exception e) {
             System.out.println(req);
@@ -97,16 +115,38 @@ public class ProxyThread extends Thread {
         return cache.get(url);
     }
 
+    private void updateCache() throws IOException {
+        String result;
+        for(String url:cache.keySet()) {
+            result = getWebpage(url);
+            addToCache(url, result);
+            System.out.println("Cache for " + url +" is updated!");
+
+        }
+    }
     /**
      * returns the response from host server
      * @param url   The request from client
      * @return      The response from host server
      */
-    private String getWebpage(String url) throws IOException {
+    private String getWebpage(String url) throws IOException{
         URL result = new URL(url);
         URLConnection yc = result.openConnection();
         BufferedReader in = new BufferedReader(new InputStreamReader(
                 yc.getInputStream()));
+        String response = "";
+        String inputLine;
+        while ((inputLine = in.readLine()) != null)
+            response += inputLine;
+
+        return response;
+    }
+
+    private String getWebpage(String url, String req) throws IOException {
+        Socket socket = new Socket(url, 80);
+        socket.getOutputStream().write(req.getBytes());
+        BufferedReader in = new BufferedReader(new InputStreamReader(
+                socket.getInputStream()));
         String response = "";
         String inputLine;
         while ((inputLine = in.readLine()) != null){
